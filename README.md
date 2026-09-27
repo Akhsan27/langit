@@ -30,7 +30,7 @@ A responsive weather dashboard built with Next.js and TypeScript. It shows curre
 ### Installation
 
 ```bash
-git clone <your-repository-url>
+git clone https://github.com/Akhsan27/langit.git
 cd weather-dashboard
 npm install
 npm run dev
