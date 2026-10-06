@@ -1,6 +1,9 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import AppSidebar from "@/components/AppSidebar";
+import AppearanceControls from "@/components/AppearanceControls";
+import { Language, usePreferences } from "@/components/Preferences";
 
 type Place = { id: number; name: string; region?: string; country?: string; lat: number; lon: number; timezone?: string };
 type Weather = {
@@ -11,22 +14,30 @@ type Weather = {
 };
 
 const defaultPlace: Place = { id: 1642911, name: "Jakarta", region: "Jakarta", country: "Indonesia", lat: -6.2088, lon: 106.8456, timezone: "Asia/Jakarta" };
-const savedPlaces: Place[] = [defaultPlace, { id: 1650357, name: "Bandung", region: "Jawa Barat", country: "Indonesia", lat: -6.9175, lon: 107.6191 }, { id: 1625822, name: "Surabaya", region: "Jawa Timur", country: "Indonesia", lat: -7.2575, lon: 112.7521 }, { id: 1214520, name: "Yogyakarta", region: "DI Yogyakarta", country: "Indonesia", lat: -7.7956, lon: 110.3695 }];
-
-function condition(code: number, isDay = 1) {
-  if (code === 0) return { label: "Cerah", icon: isDay ? "☀" : "☾" };
-  if ([1, 2].includes(code)) return { label: "Cerah berawan", icon: isDay ? "🌤" : "☁" };
-  if (code === 3) return { label: "Berawan", icon: "☁" };
-  if ([45, 48].includes(code)) return { label: "Berkabut", icon: "☁" };
-  if ([51, 53, 55, 56, 57].includes(code)) return { label: "Gerimis", icon: "🌦" };
-  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return { label: "Hujan", icon: "🌧" };
-  if ([71, 73, 75, 77, 85, 86].includes(code)) return { label: "Salju", icon: "❄" };
-  if ([95, 96, 99].includes(code)) return { label: "Badai petir", icon: "⛈" };
-  return { label: "Cerah berawan", icon: "🌤" };
+function condition(code: number, isDay = 1, language: Language = "id") {
+  let key: "clear" | "partlyCloudy" | "cloudy" | "foggy" | "drizzle" | "rainy" | "snowy" | "storm" = "partlyCloudy";
+  if (code === 0) key = "clear";
+  else if ([1, 2].includes(code)) key = "partlyCloudy";
+  else if (code === 3) key = "cloudy";
+  else if ([45, 48].includes(code)) key = "foggy";
+  else if ([51, 53, 55, 56, 57].includes(code)) key = "drizzle";
+  else if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) key = "rainy";
+  else if ([71, 73, 75, 77, 85, 86].includes(code)) key = "snowy";
+  else if ([95, 96, 99].includes(code)) key = "storm";
+  const labels: Record<Language, Record<typeof key, string>> = {
+    id: { clear: "Cerah", partlyCloudy: "Cerah berawan", cloudy: "Berawan", foggy: "Berkabut", drizzle: "Gerimis", rainy: "Hujan", snowy: "Salju", storm: "Badai petir" },
+    en: { clear: "Clear", partlyCloudy: "Partly cloudy", cloudy: "Cloudy", foggy: "Foggy", drizzle: "Drizzle", rainy: "Rainy", snowy: "Snow", storm: "Thunderstorm" },
+    ja: { clear: "晴れ", partlyCloudy: "晴れ時々くもり", cloudy: "くもり", foggy: "霧", drizzle: "小雨", rainy: "雨", snowy: "雪", storm: "雷雨" },
+    zh: { clear: "晴", partlyCloudy: "多云间晴", cloudy: "多云", foggy: "有雾", drizzle: "小雨", rainy: "下雨", snowy: "下雪", storm: "雷暴" },
+    es: { clear: "Despejado", partlyCloudy: "Parcialmente nublado", cloudy: "Nublado", foggy: "Neblina", drizzle: "Llovizna", rainy: "Lluvia", snowy: "Nieve", storm: "Tormenta" },
+    fr: { clear: "Dégagé", partlyCloudy: "Partiellement nuageux", cloudy: "Nuageux", foggy: "Brouillard", drizzle: "Bruine", rainy: "Pluie", snowy: "Neige", storm: "Orage" },
+  };
+  const icon = key === "clear" ? (isDay ? "☀" : "☾") : key === "partlyCloudy" ? (isDay ? "🌤" : "☁") : ({ cloudy: "☁", foggy: "☁", drizzle: "🌦", rainy: "🌧", snowy: "❄", storm: "⛈" } as const)[key];
+  return { label: labels[language][key], icon };
 }
 
-function timeLabel(value: string, options: Intl.DateTimeFormatOptions) {
-  return new Intl.DateTimeFormat("id-ID", options).format(new Date(value));
+function timeLabel(value: string, options: Intl.DateTimeFormatOptions, locale: string) {
+  return new Intl.DateTimeFormat(locale, options).format(new Date(value));
 }
 
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
@@ -39,6 +50,7 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
 }
 
 export default function Home() {
+  const { language, locale, t } = usePreferences();
   const [place, setPlace] = useState<Place>(defaultPlace);
   const [weather, setWeather] = useState<Weather | null>(null);
   const [query, setQuery] = useState("");
@@ -72,56 +84,47 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const currentCondition = weather ? condition(weather.current.weather_code, weather.current.is_day) : condition(2);
+  const currentCondition = weather ? condition(weather.current.weather_code, weather.current.is_day, language) : condition(2, 1, language);
   const temp = (value: number) => Math.round(unit === "C" ? value : value * 9 / 5 + 32);
   const hourly = useMemo(() => {
     if (!weather) return [];
     const start = Math.max(0, weather.hourly.time.findIndex((time) => time >= weather.current.time));
     return weather.hourly.time.slice(start, start + 8).map((time, index) => ({ time, temperature: weather.hourly.temperature_2m[start + index], rain: weather.hourly.precipitation_probability[start + index], code: weather.hourly.weather_code[start + index] }));
   }, [weather]);
-  const dayName = (date: string, index: number) => index === 0 ? "Hari ini" : timeLabel(date, { weekday: "long" });
+  const dayName = (date: string, index: number) => index === 0 ? t("todayLabel") : timeLabel(date, { weekday: "long" }, locale);
   const submitSearch = (event: FormEvent) => { event.preventDefault(); if (results[0]) { setPlace(results[0]); setQuery(""); setResults([]); } };
 
   return (
     <main className="app-shell">
-      <aside className="sidebar">
-        <a className="brand" href="#"><span className="brand-mark">☼</span><span>langit<span className="brand-dot">.</span></span></a>
-        <div className="side-label">MENU</div>
-        <a className="nav-item active" href="#today"><span className="nav-icon">◉</span>Cuaca hari ini</a>
-        <a className="nav-item" href="#forecast"><span className="nav-icon">▦</span>Prakiraan</a>
-        <div className="side-divider" />
-        <div className="side-row"><span className="side-label">LOKASI TERSIMPAN</span><button className="tiny-add" aria-label="Tambah lokasi">+</button></div>
-        <div className="saved-list">{savedPlaces.map((item) => <button key={item.id} onClick={() => setPlace(item)} className={`saved-place ${place.name === item.name ? "selected" : ""}`}><span className="place-dot" /> <span>{item.name}</span><span className="place-temp">{place.name === item.name && weather ? `${temp(weather.current.temperature_2m)}°` : "—"}</span></button>)}</div>
-        <div className="sidebar-bottom"><div className="mini-weather-icon">🌈</div><div className="mini-title">Cuaca, lebih dekat.</div><div className="mini-copy">Informasi cuaca lokal untuk rencana harianmu.</div><a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Tentang data cuaca ↗</a></div>
-      </aside>
+      <AppSidebar active="dashboard" />
 
       <section className="main-content">
-        <header className="topbar"><div className="breadcrumb">Dashboard <span>/</span> Cuaca</div><div className="top-actions"><div className="unit-toggle"><button className={unit === "C" ? "chosen" : ""} onClick={() => setUnit("C")}>°C</button><button className={unit === "F" ? "chosen" : ""} onClick={() => setUnit("F")}>°F</button></div><div className="avatar">U</div></div></header>
+        <header className="topbar"><div className="breadcrumb">{t("dashboard")} <span>/</span> {t("today")}</div><div className="top-actions"><AppearanceControls/><div className="unit-toggle"><button className={unit === "C" ? "chosen" : ""} onClick={() => setUnit("C")}>°C</button><button className={unit === "F" ? "chosen" : ""} onClick={() => setUnit("F")}>°F</button></div><div className="avatar">U</div></div></header>
 
         <div className="dashboard">
-          <div className="welcome-row"><div><div className="eyebrow">PANTAU KONDISI LANGIT</div><h1>Cuaca hari ini</h1><p className="subtitle">Informasi terbaru untuk membantumu merencanakan hari.</p></div><form className="search-wrap" onSubmit={submitSearch}><Icon name="search" size={17}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari kota..." aria-label="Cari kota"/><kbd>↵</kbd>{(results.length > 0 || searching) && <div className="search-results">{searching && <div className="search-state">Mencari kota…</div>}{results.map((result) => <button type="button" key={`${result.id}-${result.lat}`} onClick={() => { setPlace(result); setQuery(""); setResults([]); }}><span className="result-pin"><Icon name="pin" size={16}/></span><span><strong>{result.name}</strong><small>{[result.region, result.country].filter(Boolean).join(", ")}</small></span></button>)}</div>}</form></div>
+          <div className="welcome-row"><div><div className="eyebrow">{t("searchTitle")}</div><h1>{t("today")}</h1><p className="subtitle">{t("subtitle")}</p></div><form className="search-wrap" onSubmit={submitSearch}><Icon name="search" size={17}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("cityPlaceholder")} aria-label={t("cityPlaceholder")}/><kbd>↵</kbd>{(results.length > 0 || searching) && <div className="search-results">{searching && <div className="search-state">{t("searchResults")}…</div>}{results.map((result) => <button type="button" key={`${result.id}-${result.lat}`} onClick={() => { setPlace(result); setQuery(""); setResults([]); }}><span className="result-pin"><Icon name="pin" size={16}/></span><span><strong>{result.name}</strong><small>{[result.region, result.country].filter(Boolean).join(", ")}</small></span></button>)}</div>}</form></div>
 
-          {error && <div className="error-banner"><span>{error}</span><button onClick={() => void loadWeather(place)}>Coba lagi</button></div>}
+          {error && <div className="error-banner"><span>{t("notAvailable")}</span><button onClick={() => void loadWeather(place)}>{t("retry")}</button></div>}
 
           <section className="hero-card" id="today">
-            <div className="hero-glow"/><div className="hero-content"><div className="hero-location"><span className="location-pin"><Icon name="pin" size={16}/></span><div><strong>{place.name}{place.region && place.region !== place.name ? `, ${place.region}` : ""}</strong><span>{place.country ?? "Lokasi pilihan"}</span></div></div>
-              <div className="hero-weather"><div><div className="hero-temp">{loading || !weather ? "—" : temp(weather.current.temperature_2m)}<span>°{unit}</span></div><div className="hero-condition">{currentCondition.label}</div><div className="feels-like">Terasa seperti {weather ? `${temp(weather.current.apparent_temperature)}°${unit}` : "—"}</div></div><div className="hero-illustration" aria-hidden="true"><span>{currentCondition.icon}</span><i/></div></div>
-              <div className="hero-footer"><span><Icon name="sunrise" size={16}/> Terbit <b>{weather ? timeLabel(weather.daily.sunrise[0], { hour: "2-digit", minute: "2-digit" }) : "—"}</b></span><span className="hero-footer-divider"/><span className="updated-label">Diperbarui {updatedAt.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span></div>
-            </div><div className="hero-side"><div className="hero-date">{new Intl.DateTimeFormat("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}</div><div className="hero-side-note">Langit hari ini<br/><strong>{currentCondition.label.toLowerCase()}</strong></div><div className="hero-watermark">☼</div></div>
+            <div className="hero-glow"/><div className="hero-content"><div className="hero-location"><span className="location-pin"><Icon name="pin" size={16}/></span><div><strong>{place.name}{place.region && place.region !== place.name ? `, ${place.region}` : ""}</strong><span>{place.country ?? ""}</span></div></div>
+              <div className="hero-weather"><div><div className="hero-temp">{loading || !weather ? "—" : temp(weather.current.temperature_2m)}<span>°{unit}</span></div><div className="hero-condition">{currentCondition.label}</div><div className="feels-like">{t("feels")} {weather ? `${temp(weather.current.apparent_temperature)}°${unit}` : "—"}</div></div><div className="hero-illustration" aria-hidden="true"><span>{currentCondition.icon}</span><i/></div></div>
+              <div className="hero-footer"><span><Icon name="sunrise" size={16}/> {t("sunrise")} <b>{weather ? timeLabel(weather.daily.sunrise[0], { hour: "2-digit", minute: "2-digit" }, locale) : "—"}</b></span><span className="hero-footer-divider"/><span className="updated-label">{t("updated")} {updatedAt.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}</span></div>
+            </div><div className="hero-side"><div className="hero-date"><span>{new Intl.DateTimeFormat(locale, { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}</span></div><div className="hero-side-note">{t("today")}<br/><strong>{currentCondition.label.toLowerCase()}</strong></div><div className="hero-watermark">☼</div></div>
           </section>
 
           <section className="metric-grid" aria-label="Detail cuaca">
-            <article className="metric-card"><div className="metric-top"><span>Kelembapan</span><span className="metric-icon blue"><Icon name="drop"/></span></div><div className="metric-value">{weather ? `${weather.current.relative_humidity_2m}%` : "—"}</div><div className="metric-hint">Tingkat kelembapan udara</div><div className="meter"><span style={{ width: `${weather?.current.relative_humidity_2m ?? 0}%` }}/></div></article>
-            <article className="metric-card"><div className="metric-top"><span>Kecepatan angin</span><span className="metric-icon lilac"><Icon name="wind"/></span></div><div className="metric-value">{weather ? <>{Math.round(weather.current.wind_speed_10m)} <small>km/j</small></> : "—"}</div><div className="metric-hint">Angin bertiup ringan</div><div className="wind-scale"><span>0</span><i/><span>50 km/j</span></div></article>
-            <article className="metric-card"><div className="metric-top"><span>Curah hujan</span><span className="metric-icon aqua"><Icon name="drop"/></span></div><div className="metric-value">{weather ? <>{weather.current.precipitation} <small>mm</small></> : "—"}</div><div className="metric-hint">Presipitasi saat ini</div><div className="metric-note"><span className="note-dot"/> Peluang hari ini <b>{weather ? `${weather.daily.precipitation_probability_max[0]}%` : "—"}</b></div></article>
-            <article className="metric-card"><div className="metric-top"><span>Indeks UV</span><span className="metric-icon amber"><Icon name="uv"/></span></div><div className="metric-value">{weather ? weather.daily.uv_index_max[0].toFixed(1) : "—"}</div><div className="metric-hint">{(weather?.daily.uv_index_max[0] ?? 0) > 5 ? "Gunakan pelindung matahari" : "Risiko paparan rendah"}</div><div className="uv-scale"><span/><span/><span/><span/><span/><span/></div></article>
+            <article className="metric-card"><div className="metric-top"><span>{t("humidity")}</span><span className="metric-icon blue"><Icon name="drop"/></span></div><div className="metric-value">{weather ? `${weather.current.relative_humidity_2m}%` : "—"}</div><div className="metric-hint">{t("humidityHint")}</div><div className="meter"><span style={{ width: `${weather?.current.relative_humidity_2m ?? 0}%` }}/></div></article>
+            <article className="metric-card"><div className="metric-top"><span>{t("wind")}</span><span className="metric-icon blue"><Icon name="wind"/></span></div><div className="metric-value">{weather ? <>{Math.round(weather.current.wind_speed_10m)} <small>km/h</small></> : "—"}</div><div className="metric-hint">{t("windHint")}</div><div className="wind-scale"><span>0</span><i/><span>50 km/h</span></div></article>
+            <article className="metric-card"><div className="metric-top"><span>{t("rain")}</span><span className="metric-icon aqua"><Icon name="drop"/></span></div><div className="metric-value">{weather ? <>{weather.current.precipitation} <small>mm</small></> : "—"}</div><div className="metric-hint">{t("rainCurrent")}</div><div className="metric-note"><span className="note-dot"/> {t("rainToday")} <b>{weather ? `${weather.daily.precipitation_probability_max[0]}%` : "—"}</b></div></article>
+            <article className="metric-card"><div className="metric-top"><span>{t("uv")}</span><span className="metric-icon amber"><Icon name="uv"/></span></div><div className="metric-value">{weather ? weather.daily.uv_index_max[0].toFixed(1) : "—"}</div><div className="metric-hint">{(weather?.daily.uv_index_max[0] ?? 0) > 5 ? t("uvAdvice") : t("uvLow")}</div><div className="uv-scale"><span/><span/><span/><span/><span/><span/></div></article>
           </section>
 
-          <section className="panel hourly-panel"><div className="panel-heading"><div><h2>Prakiraan per jam</h2><p>Perubahan cuaca sepanjang hari</p></div><button className="text-button">24 jam <span>⌄</span></button></div><div className="hourly-scroll"><div className="hourly-list">{hourly.map((item, index) => <div className={`hour-item ${index === 0 ? "now" : ""}`} key={item.time}><span className="hour-time">{index === 0 ? "Sekarang" : timeLabel(item.time, { hour: "2-digit", minute: "2-digit" })}</span><span className="hour-icon">{condition(item.code).icon}</span><span className="hour-temp">{temp(item.temperature)}°</span><div className="rain-chance"><Icon name="drop" size={12}/>{item.rain}%</div></div>)}</div></div></section>
+          <section className="panel hourly-panel"><div className="panel-heading"><div><h2>{t("hourly")}</h2><p>{t("hourlyText")}</p></div><span className="forecast-static-label">{t("nextHours")}</span></div><div className="hourly-scroll"><div className="hourly-list">{hourly.map((item, index) => <div className={`hour-item ${index === 0 ? "now" : ""}`} key={item.time}><span className="hour-time">{index === 0 ? t("now") : timeLabel(item.time, { hour: "2-digit", minute: "2-digit" }, locale)}</span><span className="hour-icon">{condition(item.code, 1, language).icon}</span><span className="hour-temp">{temp(item.temperature)}°</span><div className="rain-chance"><Icon name="drop" size={12}/>{item.rain}%</div></div>)}</div></div></section>
 
-          <section className="panel forecast-panel" id="forecast"><div className="panel-heading"><div><h2>Prakiraan 7 hari</h2><p>Cuaca untuk beberapa hari ke depan</p></div><button className="text-button">Minggu ini <span>⌄</span></button></div><div className="forecast-list">{weather?.daily.time.map((date, index) => { const c = condition(weather.daily.weather_code[index]); return <div className="forecast-row" key={date}><span className="forecast-day">{dayName(date, index)}</span><span className="forecast-date">{timeLabel(date, { day: "numeric", month: "short" })}</span><span className="forecast-icon">{c.icon}</span><span className="forecast-condition">{c.label}</span><span className="forecast-rain"><Icon name="drop" size={13}/>{weather.daily.precipitation_probability_max[index]}%</span><span className="forecast-range"><span>{temp(weather.daily.temperature_2m_min[index])}°</span><i><b style={{ left: `${20 + (index * 7) % 30}%`, width: `${35 + (index * 5) % 22}%` }}/></i><strong>{temp(weather.daily.temperature_2m_max[index])}°</strong></span></div>; }) ?? Array.from({ length: 7 }, (_, i) => <div className="forecast-row skeleton" key={i}><span/></div>)}</div><div className="attribution">Data cuaca oleh <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> · Lisensi CC BY 4.0</div></section>
+          <section className="panel forecast-panel" id="forecast"><div className="panel-heading"><div><h2>{t("week")}</h2><p>{t("weekText")}</p></div><span className="forecast-static-label">{t("nextWeek")}</span></div><div className="forecast-list">{weather?.daily.time.map((date, index) => { const c = condition(weather.daily.weather_code[index], 1, language); return <div className="forecast-row" key={date}><span className="forecast-day">{dayName(date, index)}</span><span className="forecast-date">{timeLabel(date, { day: "numeric", month: "short" }, locale)}</span><span className="forecast-icon">{c.icon}</span><span className="forecast-condition">{c.label}</span><span className="forecast-rain"><Icon name="drop" size={13}/>{weather.daily.precipitation_probability_max[index]}%</span><span className="forecast-range"><span>{temp(weather.daily.temperature_2m_min[index])}°</span><i><b style={{ left: `${20 + (index * 7) % 30}%`, width: `${35 + (index * 5) % 22}%` }}/></i><strong>{temp(weather.daily.temperature_2m_max[index])}°</strong></span></div>; }) ?? Array.from({ length: 7 }, (_, i) => <div className="forecast-row skeleton" key={i}><span/></div>)}</div><div className="attribution">{t("dataAttribution")} <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> · CC BY 4.0</div></section>
 
-          <footer className="page-footer"><span>© 2026 Langit Weather</span><span>Dibuat untuk menemani harimu <span className="footer-sun">✳</span></span></footer>
+          <footer className="page-footer"><span>© 2026 Langit Weather</span><span>{t("brandTitle")} <span className="footer-sun">✳</span></span></footer>
         </div>
       </section>
     </main>

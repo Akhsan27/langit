@@ -4,14 +4,20 @@ A responsive weather dashboard built with Next.js and TypeScript. It shows curre
 
 ## Features
 
+- Separate Dashboard, Location Search, and Detailed Weather Charts pages
 - Current temperature and weather conditions
 - Search for cities around the world
 - Hourly forecast
 - Seven-day forecast
 - Humidity, wind speed, precipitation, and UV index details
 - Celsius and Fahrenheit temperature units
+- Automatic device location with browser permission
+- Twelve-hour temperature and rain-probability charts
+- AI-generated activity ideas with local weather-based fallback tips
 - Responsive layout for desktop and mobile screens
 - No API key required
+
+AI-generated recommendations are optional. Copy `.env.example` to `.env.local` and add a Gemini API key as `GEMINI_API_KEY` to enable them. Without a key, the app displays local weather-based suggestions instead. The API key is used only by the server route and is never sent to the browser. The Gemini API currently offers a free tier for some models and usage limits; check Google's [pricing](https://ai.google.dev/gemini-api/docs/pricing) and [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits). Google may use free-tier prompts to improve its products, so the app sends weather measurements only and does not send precise device coordinates.
 
 ## Tech Stack
 
@@ -53,6 +59,9 @@ The app uses Next.js route handlers to request data from Open-Meteo:
 
 - `GET /api/weather?lat={latitude}&lon={longitude}` — current conditions and forecasts for a location.
 - `GET /api/cities?q={city}` — city search using Open-Meteo Geocoding.
+- `POST /api/recommendation` — generates activity suggestions from weather measurements when `GEMINI_API_KEY` is configured.
+
+The selected city is kept in the current browser session so the dashboard and detail page use the same location. Favorite cities are saved in the browser's local storage.
 
 Weather responses are cached for 15 minutes, and city search responses for 24 hours.
 
